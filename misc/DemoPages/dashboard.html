@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script type="text/javascript" src="knockout-3.4.0.js"></script>
+        <script type="text/javascript" src="smoothie.js"></script>
+
+        <script language="javascript" type="text/javascript">
+
+            var canChart = 0;
+            var seriesMap = {};
+            var viewModel = {chartList: ko.observableArray()};
+            var pnlChart = new SmoothieChart();
+
+            function processMsg(evtData) {
+                if (Boolean(canChart)) {
+                    if (evtData.startsWith("T|")) {
+                        processTick(evtData.split("|"));
+                    } else if (evtData.startsWith("PL|")) {
+                        processPL(evtData.split("|"));
+                    } else {
+                        writeToScreen("RECEIVED " + evtData);
+                    }
+                } else {
+                    writeToScreen("RECEIVED " + evtData);
+                }
+            }
+
+            function processTick(tickDataParts) {
+
+                var owner = tickDataParts[1];
+
+                if (!seriesMap[owner]) {
+                    viewModel.chartList.push({"owner": owner});
+                    var ch = new SmoothieChart();
+                    var ts = new TimeSeries();
+                    ch.addTimeSeries(ts, {strokeStyle: randRgb(), lineWidth: 3});
+                    seriesMap[owner] = {
+                        "ch": ch,
+                        "ts": ts
+                    };
+                    ch.streamTo(document.getElementById(owner), 600);
+                }
+
+                var dataPoint = Number(tickDataParts[2]);
+                var ts = seriesMap[owner]["ts"];
+                ts.append(new Date().getTime(), dataPoint);
+            }
+
+            function processPL(plDataParts) {
+                var owner = plDataParts[1];
+                if (!seriesMap[owner]) {
+                    var ch = pnlChart;
+                    var ts = new TimeSeries();
+                    ch.addTimeSeries(ts, {strokeStyle: randRgb(), lineWidth: 3});
+                    seriesMap[owner] = {
+                        "ch": ch,
+                        "ts": ts
+                    };
+                    ch.streamTo(document.getElementById("pnl"), 600);
+                }
+
+                var dataPoint = Number(plDataParts[2]);
+                var ts = seriesMap[owner]["ts"];
+                ts.append(new Date().getTime(), dataPoint);
+            }
+
+            function rainbow(numOfSteps, step) {
+                // This function generates vibrant, "evenly spaced" colours (i.e. no clustering). This is ideal for creating easily distinguishable vibrant markers in Google Maps and other apps.
+                // Adam Cole, 2011-Sept-14
+                // HSV to RBG adapted from: http://mjijackson.com/2008/02/rgb-to-hsl-and-rgb-to-hsv-color-model-conversion-algorithms-in-javascript
+                var r, g, b;
+                var h = step / numOfSteps;
+                var i = ~~(h * 6);
+                var f = h * 6 - i;
+                var q = 1 - f;
+                switch (i % 6) {
+                    case 0:
+                        r = 1;
+                        g = f;
+                        b = 0;
+                        break;
+                    case 1:
+                        r = q;
+                        g = 1;
+                        b = 0;
+                        break;
+                    case 2:
+                        r = 0;
+                        g = 1;
+                        b = f;
+                        break;
+                    case 3:
+                        r = 0;
+                        g = q;
+                        b = 1;
+                        break;
+                    case 4:
+                        r = f;
+                        g = 0;
+                        b = 1;
+                        break;
+                    case 5:
+                        r = 1;
+                        g = 0;
+                        b = q;
+                        break;
+                }
+                var c = "#" + ("00" + (~~(r * 255)).toString(16)).slice(-2) + ("00" + (~~(g * 255)).toString(16)).slice(-2) + ("00" + (~~(b * 255)).toString(16)).slice(-2);
+                return (c);
+            }
+
+            var colorChoices = [];
+            for (i = 0; i < 20; i++) {
+                var cc = rainbow(20, i);
+                colorChoices.push(cc);
+            }
+
+            function randRgb() {
+                return colorChoices[Math.floor(Math.random() * colorChoices.length)];
+            }
+
+
+            var wsUri = "ws://localhost:4567/marketdata/";
+
+            function init()
+            {
+                ko.applyBindings(viewModel);
+                testWebSocket();
+                canChart = 1;
+            }
+
+            function testWebSocket()
+            {
+                websocket = new WebSocket(wsUri);
+                websocket.onopen = function (evt) {
+                    onOpen(evt)
+                };
+                websocket.onclose = function (evt) {
+                    onClose(evt)
+                };
+                websocket.onmessage = function (evt) {
+                    onMessage(evt)
+                };
+                websocket.onerror = function (evt) {
+                    onError(evt)
+                };
+            }
+
+            function onOpen(evt)
+            {
+                writeToScreen("CONNECTED");
+                doSend("WebSocket rocks");
+            }
+
+            function onClose(evt)
+            {
+                writeToScreen("DISCONNECTED");
+            }
+
+            function onMessage(evt)
+            {
+                processMsg(String(evt.data));
+            }
+
+            function onError(evt)
+            {
+                writeToScreen('<span style="color: red;">ERROR:</span> ' + evt.data);
+            }
+
+            function doSend(message)
+            {
+                writeToScreen("SENT: " + message);
+                websocket.send(message);
+            }
+
+            function writeToScreen(message)
+            {
+                console.log(message);
+            }
+
+            window.addEventListener("load", init, false);
+
+        </script>
+    </head>
+    <body>
+
+        <h2>Live Data</h2>
+        <div style="float: right">
+            <h3>Trader PnL</h3>
+            <canvas id="pnl" width="640" height="300"></canvas>
+        </div>
+        <div style="float: left">
+            <div data-bind="template: { name: 'graph-template', foreach: chartList }"></div>
+            <script type="text/html" id="graph-template">
+                <h3 data-bind="text: owner"></h3>
+                <canvas data-bind="attr: {'id': owner}" width="640" height="100"></canvas>
+            </script>
+        </div>
+
+    </body>
+</html>
